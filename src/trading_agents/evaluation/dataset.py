@@ -7,11 +7,11 @@ Each dataset item represents one ticker run with its raw_data as input.
 Usage
 -----
   # Add the current run's data to the dataset:
-  from evaluation.dataset import upsert_dataset_item
+  from trading_agents.evaluation.dataset import upsert_dataset_item
   upsert_dataset_item(ticker, raw_data)
 
-  # CLI: replay the whole dataset and re-score (see eval.py):
-  from evaluation.dataset import run_dataset_eval
+  # CLI: replay the whole dataset and re-score (see eval_cli.py):
+  from trading_agents.evaluation.dataset import run_dataset_eval
   run_dataset_eval()
 """
 from __future__ import annotations
@@ -42,7 +42,7 @@ def upsert_dataset_item(
     dataset_name : str | None
         Dataset name override. Defaults to config.EVAL_DATASET_NAME.
     """
-    from config import EVAL_DATASET_NAME, LANGFUSE_ENABLED
+    from trading_agents.config import EVAL_DATASET_NAME, LANGFUSE_ENABLED
     if not LANGFUSE_ENABLED:
         return
 
@@ -107,7 +107,7 @@ def run_dataset_eval(
     dict
         Summary of scores across all tickers.
     """
-    from config import EVAL_DATASET_NAME, LANGFUSE_ENABLED
+    from trading_agents.config import EVAL_DATASET_NAME, LANGFUSE_ENABLED
     if not LANGFUSE_ENABLED:
         raise RuntimeError(
             "Langfuse is not configured. Set LANGFUSE_PUBLIC_KEY and "
@@ -118,11 +118,11 @@ def run_dataset_eval(
     run_label = run_name or f"eval-run-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
 
     from langfuse import get_client
-    from evaluation.evaluator import evaluate_pipeline_run
-    from graph import pipeline
+    from trading_agents.evaluation.evaluator import evaluate_pipeline_run
+    from trading_agents.graph import pipeline
     from langchain_core.runnables import RunnableConfig
-    from observability import get_callback_handler, get_trace_id, flush
-    from state import AgentState
+    from trading_agents.observability import get_callback_handler, get_trace_id, flush
+    from trading_agents.state import AgentState
 
     client = get_client()
     dataset = client.get_dataset(name)

@@ -4,9 +4,9 @@ Trading Agents — Multi-Agent Stock Research System
 CLI entry point.
 
 Usage:
-    uv run main.py AAPL
-    uv run main.py MSFT --save
-    uv run main.py TSLA --save --output-dir my_reports
+    uv run trading-agents AAPL
+    uv run trading-agents MSFT --save
+    uv run trading-agents TSLA --save --output-dir my_reports
 """
 from __future__ import annotations
 
@@ -166,10 +166,10 @@ def save_report(ticker: str, report: str, output_dir: str) -> Path:
 def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
     """Run the full multi-agent pipeline for the given ticker."""
     # Late import so config validation happens after arg parsing
-    from graph import pipeline
+    from trading_agents.graph import pipeline
     from langchain_core.runnables import RunnableConfig
-    from observability import flush, get_callback_handler, get_trace_id
-    from state import AgentState
+    from trading_agents.observability import flush, get_callback_handler, get_trace_id
+    from trading_agents.state import AgentState
 
     print_banner()
     console.print(Rule(style="cyan"))
@@ -183,7 +183,7 @@ def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
     # ── Langfuse tracing (optional) ───────────────────────────────────────────
     langfuse_handler = get_callback_handler(ticker)
     if langfuse_handler:
-        from config import LANGFUSE_HOST
+        from trading_agents.config import LANGFUSE_HOST
         console.print(
             f"  [dim]🔭 Langfuse tracing active → [link={LANGFUSE_HOST}]{LANGFUSE_HOST}[/link][/dim]"
         )
@@ -234,8 +234,8 @@ def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
 
     # ── Evaluation ────────────────────────────────────────────────────────────
     if final_state:
-        from evaluation.evaluator import evaluate_pipeline_run
-        from evaluation.dataset import upsert_dataset_item
+        from trading_agents.evaluation.evaluator import evaluate_pipeline_run
+        from trading_agents.evaluation.dataset import upsert_dataset_item
 
         trace_id = get_trace_id(langfuse_handler)
         with Progress(

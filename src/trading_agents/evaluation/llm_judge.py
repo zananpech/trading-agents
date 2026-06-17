@@ -21,7 +21,7 @@ import warnings
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_google_genai import ChatGoogleGenerativeAI
 
-from config import GEMINI_MODEL, GOOGLE_API_KEY
+from trading_agents.config import GEMINI_MODEL, GOOGLE_API_KEY
 
 # ── Shared judge LLM (low temperature for deterministic scoring) ──────────────
 def _get_judge_llm() -> ChatGoogleGenerativeAI:

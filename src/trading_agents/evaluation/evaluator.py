@@ -12,13 +12,13 @@ from __future__ import annotations
 import warnings
 from typing import TYPE_CHECKING
 
-from evaluation.llm_judge import judge_hallucination_risk, judge_reasoning_quality
-from evaluation.rule_checks import (
+from trading_agents.evaluation.llm_judge import judge_hallucination_risk, judge_reasoning_quality
+from trading_agents.evaluation.rule_checks import (
     check_analysis_structure,
     check_report_structure,
     check_verdict_clarity,
 )
-from evaluation.scores import (
+from trading_agents.evaluation.scores import (
     SCORE_ANALYSIS_STRUCTURE,
     SCORE_HALLUCINATION,
     SCORE_REASONING,
@@ -29,7 +29,7 @@ from evaluation.scores import (
 )
 
 if TYPE_CHECKING:
-    from state import AgentState
+    from trading_agents.state import AgentState
 
 
 def evaluate_pipeline_run(
@@ -119,7 +119,7 @@ def evaluate_pipeline_run(
 
 def _upload_scores_to_langfuse(result: EvalResult, trace_id: str) -> None:
     """Upload all dimension scores to Langfuse attached to the given trace."""
-    from config import LANGFUSE_ENABLED
+    from trading_agents.config import LANGFUSE_ENABLED
     if not LANGFUSE_ENABLED:
         return
 

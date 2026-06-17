@@ -30,7 +30,7 @@ Given a stock ticker, a team of AI agents collaborates to produce a comprehensiv
 ## Architecture
 
 ```
-User (CLI: uv run main.py AAPL)
+User (CLI: uv run trading-agents AAPL)
     │
     ▼
 LangGraph Pipeline
@@ -101,13 +101,13 @@ GOOGLE_API_KEY=your-actual-gemini-key-here
 
 ```bash
 # Analyze a stock (prints report to terminal)
-uv run main.py AAPL
+uv run trading-agents AAPL
 
 # Analyze and save the report as a markdown file
-uv run main.py MSFT --save
+uv run trading-agents MSFT --save
 
 # Save to a custom directory
-uv run main.py TSLA --save --output-dir my_research
+uv run trading-agents TSLA --save --output-dir my_research
 ```
 
 Reports are saved to `reports/<TICKER>_<DATE>.md` by default.
@@ -135,24 +135,26 @@ Each run produces a full **8-section equity research report**:
 
 ```
 trading-agents/
-├── main.py                          # CLI entry point
+├── src/
+│   └── trading_agents/
+│       ├── __init__.py
+│       ├── cli/
+│       │   ├── main.py              # CLI entry point (trading-agents)
+│       │   └── eval_cli.py          # Eval CLI (trading-agents-eval)
+│       ├── agents/                  # LangGraph node functions
+│       ├── tools/                   # yfinance data fetching tools
+│       ├── evaluation/              # Rule-based & LLM judges
+│       ├── config.py                # Environment variables & constants
+│       ├── graph.py                 # LangGraph pipeline definition
+│       ├── observability.py         # Langfuse integration
+│       └── state.py                 # Shared AgentState TypedDict
+├── tests/                           # Pytest test suite
+├── docs/                            # Documentation
 ├── pyproject.toml                   # uv project config & dependencies
-├── uv.lock                          # Locked dependency versions (committed)
+├── uv.lock                          # Locked dependency versions
 ├── docker-compose.yml               # Self-hosted Langfuse stack
-├── docker-compose.env.example       # Langfuse infra secrets template
 ├── .env                             # Your API keys (gitignored)
-├── .env.example                     # API key template
-├── reports/                         # Saved reports (auto-created, gitignored)
-└── trading_agents/
-    ├── config.py                    # Loads env vars, model + Langfuse constants
-    ├── state.py                     # LangGraph AgentState TypedDict
-    ├── graph.py                     # Pipeline: fetch_data → analyst → writer
-    ├── observability.py             # Langfuse CallbackHandler factory
-    ├── agents/
-    │   ├── fundamental_analyst.py   # Gemini: analyzes 7 fundamental dimensions
-    │   └── report_writer.py         # Gemini: writes polished investor report
-    └── tools/
-        └── data_fetcher.py          # 5 yfinance @tool functions
+└── reports/                         # Saved reports (auto-created)
 ```
 
 ---
@@ -203,7 +205,7 @@ LANGFUSE_HOST=http://localhost:3000
 ### 4. Run the pipeline — traces appear automatically
 
 ```bash
-uv run main.py AAPL
+uv run trading-agents AAPL
 ```
 
 The CLI will show: `🔭 Langfuse tracing active → http://localhost:3000`

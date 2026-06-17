@@ -1,7 +1,7 @@
 [project]
 name = "trading-agents"
 version = "0.1.0"
-description = "Add your description here"
+description = "Multi-Agent Stock Research System powered by Google Gemini & LangGraph"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
@@ -14,5 +14,21 @@ dependencies = [
     "yfinance>=1.4.1",
 ]
 
+[project.scripts]
+trading-agents = "trading_agents.cli.main:main"
+trading-agents-eval = "trading_agents.cli.eval_cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
 [tool.setuptools.packages.find]
-include = ["trading_agents*"]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.1.0",
+]

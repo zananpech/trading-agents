@@ -9,8 +9,8 @@ from __future__ import annotations
 from langchain_google_genai import ChatGoogleGenerativeAI
 from langchain_core.messages import HumanMessage, SystemMessage
 
-from config import GEMINI_MODEL, GOOGLE_API_KEY, LLM_TEMPERATURE
-from state import AgentState
+from trading_agents.config import GEMINI_MODEL, GOOGLE_API_KEY, LLM_TEMPERATURE
+from trading_agents.state import AgentState
 
 
 def _extract_text(content) -> str:

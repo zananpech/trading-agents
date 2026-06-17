@@ -29,7 +29,7 @@ def get_callback_handler(ticker: str) -> BaseCallbackHandler | None:
 
     Returns None if Langfuse is not configured or not installed.
     """
-    from config import LANGFUSE_ENABLED
+    from trading_agents.config import LANGFUSE_ENABLED
 
     if not LANGFUSE_ENABLED:
         return None

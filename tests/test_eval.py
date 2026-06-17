@@ -1,5 +1,5 @@
 """Quick sanity test for rule-based evaluation checks."""
-from evaluation.rule_checks import (
+from trading_agents.evaluation.rule_checks import (
     check_report_structure,
     check_verdict_clarity,
     check_analysis_structure,

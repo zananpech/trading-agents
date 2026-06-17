@@ -7,16 +7,16 @@ Standalone tool for running regression evaluations against a Langfuse Dataset.
 Usage
 -----
   # Run the full benchmark dataset and score all tickers:
-  uv run eval.py
+  uv run trading-agents-eval
 
   # Run against a specific named dataset:
-  uv run eval.py --dataset my-custom-dataset
+  uv run trading-agents-eval --dataset my-custom-dataset
 
   # Add tickers to the benchmark dataset (runs pipeline + adds to dataset):
-  uv run eval.py --add AAPL MSFT TSLA
+  uv run trading-agents-eval --add AAPL MSFT TSLA
 
   # Name this evaluation run (shows in Langfuse UI for comparison):
-  uv run eval.py --run-name prompt-v2-experiment
+  uv run trading-agents-eval --run-name prompt-v2-experiment
 """
 from __future__ import annotations
 
@@ -104,11 +104,11 @@ def print_summary_table(results: dict) -> None:
 
 def cmd_add(tickers: list[str], dataset_name: str) -> None:
     """Run the pipeline for each ticker and add results to the dataset."""
-    from graph import pipeline
+    from trading_agents.graph import pipeline
     from langchain_core.runnables import RunnableConfig
-    from observability import flush, get_callback_handler, get_trace_id
-    from evaluation.dataset import upsert_dataset_item
-    from state import AgentState
+    from trading_agents.observability import flush, get_callback_handler, get_trace_id
+    from trading_agents.evaluation.dataset import upsert_dataset_item
+    from trading_agents.state import AgentState
 
     console.print(
         f"\n  Adding {len(tickers)} ticker(s) to dataset [bold cyan]'{dataset_name}'[/bold cyan]...\n"
@@ -153,7 +153,7 @@ def cmd_add(tickers: list[str], dataset_name: str) -> None:
 
 def cmd_run(dataset_name: str, run_name: str | None) -> None:
     """Replay all items in the dataset and score them."""
-    from evaluation.dataset import run_dataset_eval
+    from trading_agents.evaluation.dataset import run_dataset_eval
 
     console.print(
         f"\n  Running evaluation on dataset [bold cyan]'{dataset_name}'[/bold cyan]"
@@ -166,7 +166,7 @@ def cmd_run(dataset_name: str, run_name: str | None) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        prog="eval",
+        prog="trading-agents-eval",
         description="Trading Agents — Langfuse Evaluation CLI",
     )
     parser.add_argument(
@@ -192,7 +192,7 @@ def main() -> None:
     args = parser.parse_args()
 
     # Resolve dataset name
-    from config import EVAL_DATASET_NAME
+    from trading_agents.config import EVAL_DATASET_NAME
     dataset_name = args.dataset or EVAL_DATASET_NAME
 
     console.print()

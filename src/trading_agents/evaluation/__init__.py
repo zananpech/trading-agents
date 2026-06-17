@@ -7,7 +7,7 @@ Provides automatic quality scoring for every pipeline run using:
 
 Scores are attached to Langfuse traces and printed to the terminal.
 """
-from evaluation.evaluator import evaluate_pipeline_run
-from evaluation.scores import EvalResult
+from trading_agents.evaluation.evaluator import evaluate_pipeline_run
+from trading_agents.evaluation.scores import EvalResult
 
 __all__ = ["evaluate_pipeline_run", "EvalResult"]
