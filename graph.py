@@ -7,10 +7,11 @@ Graph topology:
 from __future__ import annotations
 
 from langgraph.graph import END, StateGraph
+from langgraph.graph.state import CompiledStateGraph
 
-from trading_agents.agents import fundamental_analyst_node, report_writer_node
-from trading_agents.state import AgentState
-from trading_agents.tools import (
+from agents import fundamental_analyst_node, report_writer_node
+from state import AgentState
+from tools import (
     get_earnings,
     get_financials,
     get_news,
@@ -37,7 +38,7 @@ def fetch_data_node(state: AgentState) -> AgentState:
     return {**state, "raw_data": raw_data}
 
 
-def build_graph() -> StateGraph:
+def build_graph() -> CompiledStateGraph:
     """
     Construct and compile the multi-agent LangGraph pipeline.
 

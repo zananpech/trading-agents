@@ -14,3 +14,9 @@ wheels/
 
 # Generated reports
 reports/
+
+# Langfuse Docker secrets (copy from docker-compose.env.example)
+docker-compose.env
+
+# Langfuse Docker volume data (if using local bind mounts)
+langfuse-data/

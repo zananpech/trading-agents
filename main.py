@@ -22,6 +22,7 @@ from rich.panel import Panel
 from rich.progress import Progress, SpinnerColumn, TextColumn, TimeElapsedColumn
 from rich.rule import Rule
 from rich.style import Style
+from rich.table import Table
 from rich.text import Text
 from rich.theme import Theme
 
@@ -82,6 +83,76 @@ def detect_verdict(report: str) -> str:
     return "HOLD"
 
 
+def _score_bar(value: float, width: int = 16) -> str:
+    """Render a simple unicode progress bar for a score in [0.0, 1.0]."""
+    filled = round(value * width)
+    empty = width - filled
+    return "█" * filled + "░" * empty
+
+
+def _score_color(value: float) -> str:
+    """Pick a rich color based on score value."""
+    if value >= 0.85:
+        return "bold green"
+    if value >= 0.65:
+        return "bold yellow"
+    return "bold red"
+
+
+def print_eval_results(eval_result) -> None:
+    """Render the evaluation results as a rich table in the terminal."""
+
+    console.print()
+    console.print(Rule(title="🎯  EVALUATION RESULTS", style="cyan"))
+    console.print()
+
+    table = Table(
+        show_header=True,
+        header_style="bold cyan",
+        border_style="dim cyan",
+        box=None,
+        padding=(0, 2),
+    )
+    table.add_column("Dimension", style="white", min_width=26)
+    table.add_column("Method", style="dim white", min_width=12)
+    table.add_column("Score", justify="center", min_width=20)
+    table.add_column("Value", justify="right", min_width=6)
+
+    for dim in eval_result.dimensions:
+        bar = _score_bar(dim.value)
+        color = _score_color(dim.value)
+        method_label = "[dim cyan]llm-judge[/dim cyan]" if dim.method == "llm-judge" else "[dim white]rule-based[/dim white]"
+        table.add_row(
+            dim.label,
+            method_label,
+            f"[{color}]{bar}[/{color}]",
+            f"[{color}]{dim.value:.2f}[/{color}]",
+        )
+
+    # Separator + overall
+    overall_color = _score_color(eval_result.overall)
+    table.add_section()
+    table.add_row(
+        "[bold white]Overall Quality[/bold white]",
+        "[dim white]weighted avg[/dim white]",
+        f"[{overall_color}]{_score_bar(eval_result.overall)}[/{overall_color}]",
+        f"[{overall_color}]{eval_result.overall:.2f}[/{overall_color}]",
+    )
+
+    console.print(table)
+
+    # Print LLM judge rationales
+    llm_dims = [d for d in eval_result.dimensions if d.method == "llm-judge" and d.rationale]
+    if llm_dims:
+        console.print()
+        for dim in llm_dims:
+            console.print(
+                f"  [dim cyan]{dim.label}:[/dim cyan] [dim white]{dim.rationale}[/dim white]"
+            )
+
+    console.print()
+
+
 def save_report(ticker: str, report: str, output_dir: str) -> Path:
     """Save the report to a markdown file."""
     out = Path(output_dir)
@@ -95,8 +166,10 @@ def save_report(ticker: str, report: str, output_dir: str) -> Path:
 def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
     """Run the full multi-agent pipeline for the given ticker."""
     # Late import so config validation happens after arg parsing
-    from trading_agents.graph import pipeline
-    from trading_agents.state import AgentState
+    from graph import pipeline
+    from langchain_core.runnables import RunnableConfig
+    from observability import flush, get_callback_handler, get_trace_id
+    from state import AgentState
 
     print_banner()
     console.print(Rule(style="cyan"))
@@ -106,6 +179,16 @@ def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
     )
     console.print(Rule(style="cyan"))
     console.print()
+
+    # ── Langfuse tracing (optional) ───────────────────────────────────────────
+    langfuse_handler = get_callback_handler(ticker)
+    if langfuse_handler:
+        from config import LANGFUSE_HOST
+        console.print(
+            f"  [dim]🔭 Langfuse tracing active → [link={LANGFUSE_HOST}]{LANGFUSE_HOST}[/link][/dim]"
+        )
+        console.print()
+    run_config: RunnableConfig = {"callbacks": [langfuse_handler]} if langfuse_handler else {}
 
     initial_state: AgentState = {
         "ticker": ticker.upper(),
@@ -121,6 +204,7 @@ def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
     ]
 
     final_state: AgentState | None = None
+    eval_result = None  # Will be populated after pipeline + eval run
 
     with Progress(
         SpinnerColumn(style="cyan"),
@@ -133,7 +217,7 @@ def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
         task = progress.add_task(steps[0][1], total=None)
 
         # Manually stream node by node using the stream API
-        for i, event in enumerate(pipeline.stream(initial_state)):
+        for i, event in enumerate(pipeline.stream(initial_state, config=run_config)):
             node_name = list(event.keys())[0]
 
             step_idx = {"fetch_data": 0, "fundamental_analyst": 1, "report_writer": 2}.get(node_name, i)
@@ -143,6 +227,31 @@ def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
                 progress.update(task, description="✅  Finalizing report...")
 
             final_state = event[node_name]
+
+    # Flush Langfuse spans before rendering (ensures traces reach the server)
+    if langfuse_handler:
+        flush()
+
+    # ── Evaluation ────────────────────────────────────────────────────────────
+    if final_state:
+        from evaluation.evaluator import evaluate_pipeline_run
+        from evaluation.dataset import upsert_dataset_item
+
+        trace_id = get_trace_id(langfuse_handler)
+        with Progress(
+            SpinnerColumn(style="cyan"),
+            TextColumn("[progress.description]{task.description}"),
+            console=console,
+            transient=True,
+        ) as eval_progress:
+            eval_progress.add_task("🎯  Running evaluations...", total=None)
+            eval_result = evaluate_pipeline_run(state=final_state, trace_id=trace_id)
+
+        # Save to Langfuse Dataset for regression testing
+        upsert_dataset_item(
+            ticker=final_state.get("ticker", ticker),
+            raw_data=final_state.get("raw_data", {}),
+        )
 
     console.print()
     console.print(Rule(title="📋  RESEARCH REPORT", style="cyan"))
@@ -171,6 +280,10 @@ def run_analysis(ticker: str, save: bool, output_dir: str) -> None:
                 padding=(0, 4),
             )
         )
+
+        # Print evaluation results
+        if eval_result is not None:
+            print_eval_results(eval_result)
 
         # Save report if requested
         if save:

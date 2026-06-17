@@ -1,0 +1,113 @@
+# Langfuse v3 — Self-Hosted Docker Compose
+# Based on: https://langfuse.com/docs/deployment/local
+#
+# Usage:
+#   1. Copy docker-compose.env.example to docker-compose.env and fill in values
+#   2. docker compose up -d
+#   3. Open http://localhost:3000
+
+services:
+  langfuse-worker:
+    image: langfuse/langfuse-worker:3
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    env_file:
+      - docker-compose.env
+    environment:
+      - NODE_ENV=production
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+
+  langfuse-web:
+    image: langfuse/langfuse:3
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      clickhouse:
+        condition: service_healthy
+    ports:
+      - "3000:3000"
+    env_file:
+      - docker-compose.env
+    environment:
+      - NODE_ENV=production
+      - LANGFUSE_S3_EVENT_UPLOAD_BUCKET=langfuse
+
+  postgres:
+    image: postgres:17
+    restart: always
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - langfuse_postgres_data:/var/lib/postgresql/data
+    env_file:
+      - docker-compose.env
+
+  redis:
+    image: redis:7
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - langfuse_redis_data:/data
+
+  clickhouse:
+    image: clickhouse/clickhouse-server:24.12
+    restart: always
+    healthcheck:
+      test: wget --no-verbose --tries=1 --spider http://localhost:8123/ping || exit 1
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - langfuse_clickhouse_data:/var/lib/clickhouse
+      - langfuse_clickhouse_logs:/var/log/clickhouse-server
+      - ./clickhouse-config/config.xml:/etc/clickhouse-server/config.d/langfuse-local.xml:ro
+    env_file:
+      - docker-compose.env
+
+  minio:
+    image: minio/minio
+    restart: always
+    entrypoint: >
+      sh -c "
+        minio server /data --console-address ':9001' &
+        sleep 5 &&
+        mc alias set local http://localhost:9000 minio miniosecret &&
+        mc mb --ignore-existing local/langfuse &&
+        wait
+      "
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    volumes:
+      - langfuse_minio_data:/data
+    env_file:
+      - docker-compose.env
+
+volumes:
+  langfuse_postgres_data:
+  langfuse_redis_data:
+  langfuse_clickhouse_data:
+  langfuse_clickhouse_logs:
+  langfuse_minio_data:

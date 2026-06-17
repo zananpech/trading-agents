@@ -6,6 +6,7 @@
 ![LangGraph](https://img.shields.io/badge/LangGraph-1.2+-orange)
 ![Gemini](https://img.shields.io/badge/Gemini-3.1_Flash_Lite-4285F4?logo=google&logoColor=white)
 ![uv](https://img.shields.io/badge/uv-package_manager-DE5FE9)
+![Langfuse](https://img.shields.io/badge/Langfuse-observability-8B5CF6)
 ![License](https://img.shields.io/badge/license-MIT-green)
 
 Given a stock ticker, a team of AI agents collaborates to produce a comprehensive, investor-grade equity research report with a clear **BUY / HOLD / SELL** verdict — all from the command line.
@@ -19,6 +20,7 @@ Given a stock ticker, a team of AI agents collaborates to produce a comprehensiv
 | LLM | Google Gemini 3.1 Flash Lite |
 | Agent Orchestration | LangGraph + LangChain |
 | Market Data | Yahoo Finance (`yfinance`) — free, no API key |
+| Observability | Langfuse (self-hosted via Docker Compose) |
 | Package Manager | `uv` |
 | CLI Output | `rich` (colored, formatted terminal output) |
 | Language | Python 3.11+ |
@@ -57,15 +59,21 @@ LangGraph Pipeline
 
 - Python 3.11+
 - [`uv`](https://docs.astral.sh/uv/) package manager — install with:
-  ```bash
+  ```powershell
+  # PowerShell (Windows)
   powershell -ExecutionPolicy ByPass -c "irm https://astral.sh/uv/install.ps1 | iex"
   ```
+  ```bash
+  # macOS / Linux
+  curl -LsSf https://astral.sh/uv/install.sh | sh
+  ```
 - A [Google Gemini API key](https://aistudio.google.com/app/apikey) — free tier available
+- [Docker Desktop](https://www.docker.com/products/docker-desktop/) — only required for Langfuse observability (optional)
 
 ### 2. Clone & install dependencies
 
 ```bash
-git clone https://github.com/your-username/trading-agents.git
+git clone https://github.com/zananpech/trading-agents.git
 cd trading-agents
 uv sync
 ```
@@ -73,8 +81,14 @@ uv sync
 ### 3. Configure your API key
 
 ```bash
+# Git Bash / macOS / Linux
+cp .env.example .env
+
+# Windows CMD / PowerShell
 copy .env.example .env
 ```
+
+> **If `.env` already exists**, just open it and add your key — do not overwrite it.
 
 Edit `.env` and set your key:
 ```env
@@ -123,19 +137,89 @@ Each run produces a full **8-section equity research report**:
 trading-agents/
 ├── main.py                          # CLI entry point
 ├── pyproject.toml                   # uv project config & dependencies
-├── .env                             # Your API key (gitignored)
+├── uv.lock                          # Locked dependency versions (committed)
+├── docker-compose.yml               # Self-hosted Langfuse stack
+├── docker-compose.env.example       # Langfuse infra secrets template
+├── .env                             # Your API keys (gitignored)
 ├── .env.example                     # API key template
 ├── reports/                         # Saved reports (auto-created, gitignored)
 └── trading_agents/
-    ├── config.py                    # Loads env vars, model constants
+    ├── config.py                    # Loads env vars, model + Langfuse constants
     ├── state.py                     # LangGraph AgentState TypedDict
     ├── graph.py                     # Pipeline: fetch_data → analyst → writer
+    ├── observability.py             # Langfuse CallbackHandler factory
     ├── agents/
     │   ├── fundamental_analyst.py   # Gemini: analyzes 7 fundamental dimensions
     │   └── report_writer.py         # Gemini: writes polished investor report
     └── tools/
         └── data_fetcher.py          # 5 yfinance @tool functions
 ```
+
+---
+
+## Observability with Langfuse
+
+The system ships with full [Langfuse](https://langfuse.com) observability — trace every LLM call, measure latency, count tokens, and score report quality.
+
+### 1. Start the self-hosted Langfuse stack
+
+**Step 1** — Copy the secrets template:
+```bash
+# Git Bash / macOS / Linux
+cp docker-compose.env.example docker-compose.env
+
+# Windows CMD / PowerShell
+copy docker-compose.env.example docker-compose.env
+```
+
+**Step 2** — Edit `docker-compose.env` and fill in your passwords. Three keys **must be 64-character hex strings** — generate them with:
+```bash
+uv run python -c "import secrets; print(secrets.token_hex(32))"
+```
+Run that command three times and paste each result into `NEXTAUTH_SECRET`, `SALT`, and `ENCRYPTION_KEY`.
+
+**Step 3** — Start all services:
+```bash
+docker compose up -d
+```
+
+Open **http://localhost:3000** — the Langfuse UI will load.
+
+### 2. Create a project and get API keys
+
+1. Edit `docker-compose.env` and set `LANGFUSE_INIT_USER_PASSWORD` to your desired admin password
+2. Open **http://localhost:3000** and log in with `admin@local.dev` and the password you set
+3. Create a new project → **Settings** → **API Keys** → **Create new key**
+4. Copy the **public key** and **secret key**
+
+### 3. Add keys to your `.env`
+
+```env
+LANGFUSE_PUBLIC_KEY=pk-lf-...
+LANGFUSE_SECRET_KEY=sk-lf-...
+LANGFUSE_HOST=http://localhost:3000
+```
+
+### 4. Run the pipeline — traces appear automatically
+
+```bash
+uv run main.py AAPL
+```
+
+The CLI will show: `🔭 Langfuse tracing active → http://localhost:3000`
+
+### What you see in the dashboard
+
+| Trace level | What's captured |
+|---|---|
+| **Root trace** | Ticker, model, run date, pipeline name |
+| **fetch_data span** | yfinance tool calls and raw outputs |
+| **fundamental_analyst span** | Gemini prompt + analysis output + token usage |
+| **report_writer span** | Gemini prompt + final report + latency |
+
+You can also add **manual scores** (e.g., report quality 1–5) on any trace directly in the UI.
+
+> **Note:** Langfuse is fully optional — if the keys are not set, the pipeline runs exactly as before with zero overhead.
 
 ---
 
