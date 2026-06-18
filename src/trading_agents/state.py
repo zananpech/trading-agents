@@ -19,7 +19,7 @@ class AgentState(TypedDict):
         The stock ticker being analyzed (e.g. "AAPL").
     raw_data : dict[str, str]
         Raw JSON strings returned by the yfinance data tools.
-        Keys: "stock_info", "valuation_metrics", "financials", "earnings", "news".
+        Keys: "stock_info", "valuation_metrics", "financials", "earnings", "news", "rag_context".
     fundamental_analysis : str
         Markdown analysis produced by the Fundamental Analyst node.
     final_report : str

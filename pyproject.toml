@@ -12,11 +12,18 @@ dependencies = [
     "python-dotenv>=1.2.2",
     "rich>=15.0.0",
     "yfinance>=1.4.1",
+    "chromadb>=0.4.24",
+    "pymupdf4llm>=0.0.17",
+    "beautifulsoup4>=4.12.3",
+    "langchain-community>=0.0.29",
+    "google-genai>=0.1.1",
+    "pillow>=10.2.0",
 ]
 
 [project.scripts]
 trading-agents = "trading_agents.cli.main:main"
 trading-agents-eval = "trading_agents.cli.eval_cli:main"
+trading-agents-ingest = "trading_agents.cli.ingest_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

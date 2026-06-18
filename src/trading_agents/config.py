@@ -26,6 +26,11 @@ EVAL_DATASET_NAME: str = os.getenv("EVAL_DATASET_NAME", "trading-agents-eval")
 # ── Report Settings ──────────────────────────────────────────────────────────
 REPORTS_DIR: str = "reports"
 
+# ── RAG Settings ─────────────────────────────────────────────────────────────
+CHROMA_DB_PATH: str = ".chroma_db"
+RAG_REPORTS_DIR: str = "data/reports"
+RAG_IMAGES_DIR: str = "data/reports/images"
+
 # ── Data Settings ────────────────────────────────────────────────────────────
 NEWS_LOOKBACK_DAYS: int = 7
 PRICE_HISTORY_PERIOD: str = "1y"  # yfinance period string

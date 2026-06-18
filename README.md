@@ -20,6 +20,8 @@ Given a stock ticker, a team of AI agents collaborates to produce a comprehensiv
 | LLM | Google Gemini 3.1 Flash Lite |
 | Agent Orchestration | LangGraph + LangChain |
 | Market Data | Yahoo Finance (`yfinance`) — free, no API key |
+| Knowledge Base / RAG | ChromaDB + `pymupdf4llm` (table-preserving Markdown) |
+| Multimodal Chart Parsing | Google Gemini 2.5 Flash Vision |
 | Observability | Langfuse (self-hosted via Docker Compose) |
 | Package Manager | `uv` |
 | CLI Output | `rich` (colored, formatted terminal output) |
@@ -35,12 +37,13 @@ User (CLI: uv run trading-agents AAPL)
     ▼
 LangGraph Pipeline
     │
-    ├── 📡 Data Fetcher Node  (yfinance — free)
+    ├── 📡 Data Fetcher Node  (yfinance — free + Local RAG)
     │       ├── Company overview & description
     │       ├── Valuation ratios (P/E, Forward P/E, EV/EBITDA, P/B, P/S, PEG)
     │       ├── Financial statements (revenue, margins, debt, FCF)
     │       ├── Earnings history (EPS actual vs. estimate, surprise %)
-    │       └── Recent news headlines (last 7 days)
+    │       ├── Recent news headlines (last 7 days)
+    │       └── 📥 RAG context from quarterly/annual reports (local ChromaDB)
     │
     ├── 🧠 Fundamental Analyst Agent  (Gemini 3.1 Flash Lite)
     │       └── Analyzes 7 dimensions: valuation, health, margins,
@@ -114,6 +117,36 @@ Reports are saved to `reports/<TICKER>_<DATE>.md` by default.
 
 ---
 
+## Knowledge Base & RAG Ingestion
+
+You can drop PDF or HTML quarterly/annual reports (e.g. 10-Q, 10-K) into the local `data/reports/` directory, ingest them into a local vector database, and have the agents automatically use this context when analyzing a stock.
+
+This pipeline:
+* Parses PDF reports into high-quality Markdown, keeping financial tables intact (via `pymupdf4llm`).
+* Automatically extracts charts, plots, and visual graphics to `data/reports/images/`.
+* Transcribes visual data into detailed text descriptions using `gemini-2.5-flash` during ingestion.
+* Chunks and stores context into a local ChromaDB instance (`.chroma_db/`).
+
+### Ingestion Usage
+
+1. Place PDF or HTML reports in `data/reports/`. Name files starting with the ticker symbol (e.g., `AAPL_10Q.pdf`, `TSLA_2025_10K.html`).
+2. Run the ingestion command:
+   ```bash
+   uv run trading-agents-ingest
+   ```
+3. Run the analysis as usual:
+   ```bash
+   uv run trading-agents AAPL
+   ```
+   The retrieved context (including parsed financial tables and transcribed charts) will automatically be injected into the fundamental analyst agent's input context.
+
+To ingest a single report file:
+```bash
+uv run trading-agents-ingest --file data/reports/AAPL_10Q.pdf
+```
+
+---
+
 ## Report Sections
 
 Each run produces a full **8-section equity research report**:
@@ -140,9 +173,14 @@ trading-agents/
 │       ├── __init__.py
 │       ├── cli/
 │       │   ├── main.py              # CLI entry point (trading-agents)
-│       │   └── eval_cli.py          # Eval CLI (trading-agents-eval)
+│       │   ├── eval_cli.py          # Eval CLI (trading-agents-eval)
+│       │   └── ingest_cli.py        # Ingestion CLI (trading-agents-ingest)
 │       ├── agents/                  # LangGraph node functions
 │       ├── tools/                   # yfinance data fetching tools
+│       ├── rag/                     # RAG ingestion & retrieval logic
+│       │   ├── __init__.py
+│       │   ├── ingestion.py         # Table and chart/image parser
+│       │   └── retrieval.py         # ChromaDB query filtering
 │       ├── evaluation/              # Rule-based & LLM judges
 │       ├── config.py                # Environment variables & constants
 │       ├── graph.py                 # LangGraph pipeline definition

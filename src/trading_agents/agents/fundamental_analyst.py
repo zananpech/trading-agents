@@ -98,6 +98,9 @@ def fundamental_analyst_node(state: AgentState) -> AgentState:
 --- RECENT NEWS ---
 {raw_data.get('news', 'Not available')}
 
+--- QUARTERLY REPORTS & RAG CONTEXT ---
+{raw_data.get('rag_context', 'No recent quarterly report filings found in context.')}
+
 Provide a comprehensive fundamental analysis covering all 7 dimensions listed in your instructions.
 """
 

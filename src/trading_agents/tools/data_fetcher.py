@@ -203,3 +203,14 @@ def get_news(ticker: str) -> str:
         )
     except Exception as e:
         return json.dumps({"ticker": ticker.upper(), "error": str(e)})
+
+
+@tool
+def fetch_rag_context(ticker: str) -> str:
+    """
+    Fetch retrieved context from company quarterly/annual reports (10-Q/10-K),
+    including parsed financial tables and transcribed charts.
+    """
+    from trading_agents.rag.retrieval import get_rag_context
+    return get_rag_context(ticker)
+

@@ -17,13 +17,14 @@ from trading_agents.tools import (
     get_news,
     get_stock_info,
     get_valuation_metrics,
+    fetch_rag_context,
 )
 
 
 def fetch_data_node(state: AgentState) -> AgentState:
     """
     Data Fetcher node: calls all yfinance tools and stores results in state.
-    Runs synchronously — all 5 tools are called in sequence.
+    Runs synchronously — all tools are called in sequence.
     """
     ticker = state["ticker"]
 
@@ -33,6 +34,7 @@ def fetch_data_node(state: AgentState) -> AgentState:
         "financials": get_financials.invoke({"ticker": ticker}),
         "earnings": get_earnings.invoke({"ticker": ticker}),
         "news": get_news.invoke({"ticker": ticker}),
+        "rag_context": fetch_rag_context.invoke({"ticker": ticker}),
     }
 
     return {**state, "raw_data": raw_data}

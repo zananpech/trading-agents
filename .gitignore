@@ -20,3 +20,7 @@ docker-compose.env
 
 # Langfuse Docker volume data (if using local bind mounts)
 langfuse-data/
+
+# RAG local database and data directory
+.chroma_db/
+data/
