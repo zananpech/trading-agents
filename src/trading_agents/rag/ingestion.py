@@ -8,9 +8,13 @@ from __future__ import annotations
 import os
 import re
 import glob
+import hashlib
+import json
+from datetime import datetime
 from typing import List
 from PIL import Image
 
+import fitz
 import pymupdf4llm
 from bs4 import BeautifulSoup
 from langchain_text_splitters import MarkdownHeaderTextSplitter, RecursiveCharacterTextSplitter
@@ -138,7 +142,89 @@ def process_html_report(html_path: str) -> str:
     cleaned_text = "\n".join(chunk for chunk in chunks if chunk)
     return cleaned_text
 
-def ingest_document(filepath: str) -> int:
+def get_file_hash(filepath: str) -> str:
+    """
+    Calculates the SHA-256 hash of a file's content.
+    """
+    sha256 = hashlib.sha256()
+    with open(filepath, "rb") as f:
+        while chunk := f.read(8192):
+            sha256.update(chunk)
+    return sha256.hexdigest()
+
+def load_registry(registry_path: str) -> dict:
+    """
+    Loads the ingestion registry JSON.
+    """
+    if not os.path.exists(registry_path):
+        return {"file_hashes": {}}
+    try:
+        with open(registry_path, "r", encoding="utf-8") as f:
+            return json.load(f)
+    except Exception as e:
+        print(f"Warning: Failed to load ingestion registry: {e}. Starting fresh.")
+        return {"file_hashes": {}}
+
+def save_registry(registry_path: str, registry: dict) -> None:
+    """
+    Saves the ingestion registry JSON.
+    """
+    os.makedirs(os.path.dirname(registry_path), exist_ok=True)
+    try:
+        with open(registry_path, "w", encoding="utf-8") as f:
+            json.dump(registry, f, indent=4)
+    except Exception as e:
+        print(f"Error saving ingestion registry: {e}")
+
+def redact_pii(text: str) -> str:
+    """
+    Redacts sensitive PII (emails, SSNs, credit cards, and standard phone numbers) from the text.
+    """
+    # Redact Emails
+    email_pattern = r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+'
+    text = re.sub(email_pattern, "[REDACTED_EMAIL]", text)
+    
+    # Redact SSNs
+    ssn_pattern = r'\b\d{3}-\d{2}-\d{4}\b'
+    text = re.sub(ssn_pattern, "[REDACTED_SSN]", text)
+    
+    # Redact Credit Cards (13-16 digits, with optional spaces/hyphens)
+    card_pattern = r'\b\d{4}[-\s]?\d{4}[-\s]?\d{4}[-\s]?\d{4}\b|\b\d{13,16}\b'
+    text = re.sub(card_pattern, "[REDACTED_CARD]", text)
+    
+    # Redact Phone Numbers (US & International)
+    phone_us_pattern = r'\b\(?\d{3}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b'
+    phone_int_pattern = r'\+?\b\d{1,4}[-.\s]?\(?\d{1,4}\)?[-.\s]?\d{1,4}[-.\s]?\d{4}\b'
+    text = re.sub(phone_us_pattern, "[REDACTED_PHONE]", text)
+    text = re.sub(phone_int_pattern, "[REDACTED_PHONE]", text)
+    
+    return text
+
+def check_prompt_injection(text: str) -> bool:
+    """
+    Heuristically checks if the text contains potential prompt injection attempts.
+    Returns True if a signature is found, indicating unsafe text.
+    """
+    injection_phrases = [
+        "ignore previous instructions",
+        "ignore the above instructions",
+        "ignore all instructions",
+        "override system instructions",
+        "override previous instructions",
+        "you are now an assistant that",
+        "you must now act as",
+        "system prompt override",
+        "new instruction:",
+        "disregard all prior guidelines",
+        "disregard previous instructions"
+    ]
+    text_lower = text.lower()
+    for phrase in injection_phrases:
+        if phrase in text_lower:
+            return True
+    return False
+
+def ingest_document(filepath: str, ticker: str | None = None) -> int:
     """
     Ingests a single report into the local vector DB.
     Returns the number of chunks added.
@@ -146,10 +232,39 @@ def ingest_document(filepath: str) -> int:
     if not os.path.exists(filepath):
         print(f"File not found: {filepath}")
         return 0
-        
-    ticker = extract_ticker_from_filename(filepath)
+
+    # 1. Check file size (limit: 20MB)
+    MAX_FILE_SIZE = 20 * 1024 * 1024
+    if os.path.getsize(filepath) > MAX_FILE_SIZE:
+        raise ValueError(f"File size of {os.path.basename(filepath)} exceeds limit of 20MB.")
+
+    # 2. File hashing and deduplication check
+    registry_path = os.path.join(CHROMA_DB_PATH, "ingestion_registry.json")
+    file_hash = get_file_hash(filepath)
+    registry = load_registry(registry_path)
+    if file_hash in registry.get("file_hashes", {}):
+        print(f"[SKIP] Document '{os.path.basename(filepath)}' has already been ingested.")
+        return 0
+
+    # 3. Ticker validation
+    if ticker is None:
+        ticker = extract_ticker_from_filename(filepath)
+    if not ticker or not re.match(r"^[A-Z0-9]{1,5}$", ticker) or ticker == "UNKNOWN":
+        raise ValueError(f"Invalid or UNKNOWN ticker '{ticker}' for file {os.path.basename(filepath)}.")
+
     _, ext = os.path.splitext(filepath.lower())
-    
+
+    # 4. PDF Parse-ability check
+    if ext == ".pdf":
+        try:
+            doc = fitz.open(filepath)
+            page_count = doc.page_count
+            doc.close()
+            if page_count == 0:
+                raise ValueError("PDF has 0 pages.")
+        except Exception as e:
+            raise ValueError(f"PDF file is corrupt or unreadable: {e}")
+
     os.makedirs(RAG_IMAGES_DIR, exist_ok=True)
     
     # Extract text content
@@ -164,6 +279,17 @@ def ingest_document(filepath: str) -> int:
     if not raw_text.strip():
         print(f"No content extracted from {filepath}")
         return 0
+
+    # 5. Prompt injection check
+    if check_prompt_injection(raw_text):
+        raise ValueError(f"Prompt injection detected in {os.path.basename(filepath)}.")
+
+    # 6. PII Redaction
+    raw_text = redact_pii(raw_text)
+
+    # 7. Minimum content check
+    if len(raw_text.strip()) < 50:
+        raise ValueError(f"Extracted content from {os.path.basename(filepath)} is too short (less than 50 characters).")
 
     # Split documents.
     # If it's PDF, it's rich markdown; split by header first, then recursively by character
@@ -206,9 +332,19 @@ def ingest_document(filepath: str) -> int:
         db.persist()
         
     print(f"Ingested {len(chunks)} chunks for {ticker} from {os.path.basename(filepath)}.")
+
+    # 8. Record successful ingestion in registry
+    registry["file_hashes"][file_hash] = {
+        "filepath": filepath,
+        "ticker": ticker,
+        "ingested_at": datetime.utcnow().isoformat() + "Z",
+        "chunk_count": len(chunks)
+    }
+    save_registry(registry_path, registry)
+
     return len(chunks)
 
-def ingest_directory(directory: str) -> int:
+def ingest_directory(directory: str, ticker: str | None = None) -> int:
     """
     Scans directory for PDF and HTML reports and ingests them.
     Returns total chunks ingested.
@@ -231,7 +367,7 @@ def ingest_directory(directory: str) -> int:
     total_chunks = 0
     for file in files:
         try:
-            chunks_added = ingest_document(file)
+            chunks_added = ingest_document(file, ticker=ticker)
             total_chunks += chunks_added
         except Exception as e:
             print(f"Error ingesting file {file}: {e}")

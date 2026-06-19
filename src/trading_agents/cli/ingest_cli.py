@@ -49,6 +49,12 @@ def main() -> None:
         default=None,
         help="Path to a single PDF/HTML file to ingest",
     )
+    parser.add_argument(
+        "--ticker",
+        type=str,
+        default=None,
+        help="Optional stock ticker (e.g. AAPL) to assign to the ingested document(s) (overrides auto-extraction)",
+    )
 
     args = parser.parse_args()
 
@@ -69,7 +75,7 @@ def main() -> None:
                 transient=True,
             ) as progress:
                 progress.add_task("Ingesting document...", total=None)
-                chunks_added = ingest_document(filepath)
+                chunks_added = ingest_document(filepath, ticker=args.ticker)
 
             if chunks_added > 0:
                 console.print(f"  [bold green]Ingested {chunks_added} chunks successfully.[/bold green]\n")
@@ -93,7 +99,7 @@ def main() -> None:
                 transient=True,
             ) as progress:
                 progress.add_task("Ingesting directory files...", total=None)
-                chunks_added = ingest_directory(directory)
+                chunks_added = ingest_directory(directory, ticker=args.ticker)
 
             if chunks_added > 0:
                 console.print(f"  [bold green]Ingestion completed! Added {chunks_added} chunks to ChromaDB.[/bold green]\n")
