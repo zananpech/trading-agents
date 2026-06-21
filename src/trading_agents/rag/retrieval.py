@@ -48,9 +48,27 @@ def get_rag_context(ticker: str, limit: int = 5) -> str:
         for i, doc in enumerate(results, 1):
             source = doc.metadata.get("source", "unknown file")
             chunk_content = doc.page_content.strip()
+            
+            # Format header path from metadata keys (Header 1, Header 2, Header 3)
+            headers = []
+            for h_key in ["Header 1", "Header 2", "Header 3"]:
+                h_val = doc.metadata.get(h_key)
+                if h_val:
+                    headers.append(h_val)
+            header_path = " > ".join(headers)
+            
+            chunk_idx = doc.metadata.get("chunk_index")
+            tot_chunks = doc.metadata.get("total_chunks")
+            
+            meta_str = ""
+            if chunk_idx is not None and tot_chunks is not None:
+                meta_str += f" [Chunk {chunk_idx + 1}/{tot_chunks}]"
+            if header_path:
+                meta_str += f" [Section: {header_path}]"
+                
             # Construct a clean section for the agent
             context_parts.append(
-                f"--- Chunk {i} from {source} ---\n"
+                f"--- Chunk {i} from {source}{meta_str} ---\n"
                 f"{chunk_content}"
             )
             

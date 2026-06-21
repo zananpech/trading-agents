@@ -72,13 +72,26 @@ def test_ingest_document_guardrails(mock_chroma: MagicMock, mock_embeddings: Mag
     
     # Create mock HTML document
     html_file = tmp_path / "AAPL_10Q.html"
-    html_file.write_text("<html><body>This is a mock quarterly report for Apple Inc. with sufficient characters to pass validation checks.</body></html>")
+    html_file.write_text("<html><body><h1>PART I</h1><p>This is a mock quarterly report for Apple Inc. with sufficient characters to pass validation checks.</p><h2>Item 2</h2><p>Additional detailed corporate information to check header extraction is working correctly.</p></body></html>")
     
     with patch("trading_agents.rag.ingestion.CHROMA_DB_PATH", temp_db_path):
         # 1. Success path
         chunks_count = ingest_document(str(html_file))
         assert chunks_count > 0
         mock_chroma.assert_called_once_with(persist_directory=temp_db_path, embedding_function=mock_embeddings())
+        
+        # Verify chunks have correct metadata assigned (index, total, and HTML-extracted headers)
+        mock_db.add_documents.assert_called_once()
+        added_chunks = mock_db.add_documents.call_args[0][0]
+        assert len(added_chunks) == chunks_count
+        for i, chunk in enumerate(added_chunks):
+            assert chunk.metadata["ticker"] == "AAPL"
+            assert chunk.metadata["source"] == "AAPL_10Q.html"
+            assert chunk.metadata["chunk_index"] == i
+            assert chunk.metadata["total_chunks"] == chunks_count
+            # The first chunk should be under Header 1: PART I
+            if i == 0:
+                assert chunk.metadata.get("Header 1") == "PART I"
         
         # Check that it recorded in the registry
         registry_file = os.path.join(temp_db_path, "ingestion_registry.json")
@@ -122,6 +135,13 @@ def test_ingest_document_guardrails(mock_chroma: MagicMock, mock_embeddings: Mag
         with pytest.raises(ValueError, match="Prompt injection detected"):
             ingest_document(str(injection_file))
 
+        # 8. Unsupported file extension check
+        unsupported_file = tmp_path / "AAPL_10Q.docx"
+        unsupported_file.write_text("Sufficient text content length that is otherwise valid but file format is unsupported.")
+        with pytest.raises(ValueError, match="Unsupported file format"):
+            ingest_document(str(unsupported_file))
+
+
 
 @patch("trading_agents.rag.ingestion.fitz.open")
 def test_pdf_corruption_guardrail(mock_fitz_open: MagicMock, tmp_path) -> None:
@@ -143,4 +163,53 @@ def test_pdf_corruption_guardrail(mock_fitz_open: MagicMock, tmp_path) -> None:
     
     with pytest.raises(ValueError, match="PDF file is corrupt or unreadable"):
         ingest_document(str(pdf_file), ticker="AMZN")
+
+
+@patch("trading_agents.rag.retrieval.GoogleGenerativeAIEmbeddings")
+@patch("trading_agents.rag.retrieval.Chroma")
+@patch("os.path.exists")
+def test_get_rag_context(mock_exists: MagicMock, mock_chroma: MagicMock, mock_embeddings: MagicMock) -> None:
+    from trading_agents.rag.retrieval import get_rag_context
+    
+    mock_exists.return_value = True
+    
+    mock_db = MagicMock()
+    mock_chroma.return_value = mock_db
+    
+    # Create mock documents returned by similarity_search
+    doc1 = MagicMock()
+    doc1.page_content = "This is chunk content 1"
+    doc1.metadata = {
+        "source": "AAPL_10Q.html",
+        "chunk_index": 4,
+        "total_chunks": 10,
+        "Header 1": "PART I",
+        "Header 2": "Item 2"
+    }
+    
+    doc2 = MagicMock()
+    doc2.page_content = "This is chunk content 2"
+    doc2.metadata = {
+        "source": "AAPL_10Q.html",
+        "chunk_index": 7,
+        "total_chunks": 10,
+    }
+    
+    mock_db.similarity_search.return_value = [doc1, doc2]
+    
+    context = get_rag_context("AAPL")
+    
+    # Verify similarity search was called with correct filter
+    mock_db.similarity_search.assert_called_once_with(
+        query="financial results, earnings, balance sheet, income statement, valuation, or guidance for AAPL",
+        k=5,
+        filter={"ticker": "AAPL"}
+    )
+    
+    # Verify formatted context contains metadata
+    assert "--- Chunk 1 from AAPL_10Q.html [Chunk 5/10] [Section: PART I > Item 2] ---" in context
+    assert "This is chunk content 1" in context
+    assert "--- Chunk 2 from AAPL_10Q.html [Chunk 8/10] ---" in context
+    assert "This is chunk content 2" in context
+
 

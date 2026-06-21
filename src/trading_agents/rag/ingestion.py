@@ -124,9 +124,9 @@ def process_pdf_report(pdf_path: str, api_key: str) -> str:
 
 def process_html_report(html_path: str) -> str:
     """
-    Extracts text contents from HTML reports.
+    Extracts markdown contents from HTML reports, preserving heading levels.
     """
-    print(f"Extracting text from HTML: {html_path}...")
+    print(f"Extracting markdown from HTML: {html_path}...")
     with open(html_path, "r", encoding="utf-8") as f:
         soup = BeautifulSoup(f.read(), "html.parser")
         
@@ -134,13 +134,41 @@ def process_html_report(html_path: str) -> str:
     for element in soup(["script", "style", "head", "header", "footer", "nav"]):
         element.decompose()
         
-    # Extract structural text
-    text = soup.get_text(separator="\n")
-    # Normalize lines
-    lines = (line.strip() for line in text.splitlines())
-    chunks = (phrase.strip() for line in lines for phrase in line.split("  "))
-    cleaned_text = "\n".join(chunk for chunk in chunks if chunk)
+    # Convert standard heading tags to Markdown headings.
+    for h_tag in ["h1", "h2", "h3", "h4", "h5", "h6"]:
+        level = int(h_tag[1])
+        prefix = "#" * level + " "
+        for elem in soup.find_all(h_tag):
+            text_val = elem.get_text().strip()
+            if text_val:
+                elem.replace_with(f"\n\n{prefix}{text_val}\n\n")
+
+    # Add spacing for paragraphs
+    for p in soup.find_all("p"):
+        text_val = p.get_text().strip()
+        if text_val:
+            p.replace_with(f"\n\n{text_val}\n\n")
+
+    # Handle line breaks
+    for br in soup.find_all("br"):
+        br.replace_with("\n")
+
+    # Extract final text
+    raw_text = soup.get_text()
+    
+    # Normalize spacing and newlines
+    lines = [line.strip() for line in raw_text.splitlines()]
+    cleaned_lines = []
+    for line in lines:
+        if line:
+            cleaned_lines.append(line)
+        else:
+            if cleaned_lines and cleaned_lines[-1] != "":
+                cleaned_lines.append("")
+                
+    cleaned_text = "\n".join(cleaned_lines).strip()
     return cleaned_text
+
 
 def get_file_hash(filepath: str) -> str:
     """
@@ -253,6 +281,8 @@ def ingest_document(filepath: str, ticker: str | None = None) -> int:
         raise ValueError(f"Invalid or UNKNOWN ticker '{ticker}' for file {os.path.basename(filepath)}.")
 
     _, ext = os.path.splitext(filepath.lower())
+    if ext not in [".pdf", ".html", ".htm"]:
+        raise ValueError(f"Unsupported file format '{ext}' for file {os.path.basename(filepath)}. Only PDF and HTML/HTM are supported.")
 
     # 4. PDF Parse-ability check
     if ext == ".pdf":
@@ -270,11 +300,8 @@ def ingest_document(filepath: str, ticker: str | None = None) -> int:
     # Extract text content
     if ext == ".pdf":
         raw_text = process_pdf_report(filepath, GOOGLE_API_KEY)
-    elif ext in [".html", ".htm"]:
+    else:  # HTML / HTM
         raw_text = process_html_report(filepath)
-    else:
-        print(f"Unsupported file type: {ext} for {filepath}")
-        return 0
 
     if not raw_text.strip():
         print(f"No content extracted from {filepath}")
@@ -292,27 +319,26 @@ def ingest_document(filepath: str, ticker: str | None = None) -> int:
         raise ValueError(f"Extracted content from {os.path.basename(filepath)} is too short (less than 50 characters).")
 
     # Split documents.
-    # If it's PDF, it's rich markdown; split by header first, then recursively by character
-    if ext == ".pdf":
-        headers_to_split_on = [
-            ("#", "Header 1"),
-            ("##", "Header 2"),
-            ("###", "Header 3"),
-        ]
-        markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
-        md_header_splits = markdown_splitter.split_text(raw_text)
-        
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
-        chunks = text_splitter.split_documents(md_header_splits)
-    else:
-        # Standard recursive character splitting for text/HTML
-        text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
-        chunks = text_splitter.create_documents([raw_text])
+    # Since HTML is now converted to Markdown, we use markdown header splitting for both formats.
+    headers_to_split_on = [
+        ("#", "Header 1"),
+        ("##", "Header 2"),
+        ("###", "Header 3"),
+    ]
+    markdown_splitter = MarkdownHeaderTextSplitter(headers_to_split_on=headers_to_split_on)
+    md_header_splits = markdown_splitter.split_text(raw_text)
+    
+    text_splitter = RecursiveCharacterTextSplitter(chunk_size=1500, chunk_overlap=150)
+    chunks = text_splitter.split_documents(md_header_splits)
 
     # Assign metadata to each chunk
-    for chunk in chunks:
+    total_chunks = len(chunks)
+    for i, chunk in enumerate(chunks):
         chunk.metadata["ticker"] = ticker
         chunk.metadata["source"] = os.path.basename(filepath)
+        chunk.metadata["chunk_index"] = i
+        chunk.metadata["total_chunks"] = total_chunks
+
 
     print(f"Split {os.path.basename(filepath)} into {len(chunks)} chunks. Storing in ChromaDB...")
     
