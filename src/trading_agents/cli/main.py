@@ -322,9 +322,6 @@ def main() -> None:
     args = parser.parse_args()
     ticker = args.ticker.strip().upper()
 
-    if not ticker.isalpha():
-        console.print(f"[error]❌ Invalid ticker: '{ticker}'. Ticker must contain only letters.[/error]")
-        sys.exit(1)
 
     try:
         run_analysis(ticker=ticker, save=args.save, output_dir=args.output_dir)

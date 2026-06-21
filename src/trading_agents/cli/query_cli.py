@@ -57,9 +57,6 @@ def main() -> None:
     ticker = args.ticker.strip().upper()
     query = args.query.strip()
 
-    if not ticker.isalpha():
-        console.print(f"[bold red]Error: Invalid ticker '{ticker}'. Ticker must contain only letters.[/bold red]")
-        sys.exit(1)
 
     print_banner()
     
