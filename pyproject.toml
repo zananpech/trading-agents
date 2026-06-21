@@ -25,6 +25,7 @@ dependencies = [
 trading-agents = "trading_agents.cli.main:main"
 trading-agents-eval = "trading_agents.cli.eval_cli:main"
 trading-agents-ingest = "trading_agents.cli.ingest_cli:main"
+trading-agents-query = "trading_agents.cli.query_cli:main"
 
 [build-system]
 requires = ["setuptools>=68"]

@@ -252,4 +252,28 @@ def test_get_rag_context(mock_exists: MagicMock, mock_chroma: MagicMock, mock_em
     assert "This is chunk content 1" in context
 
 
+@patch("trading_agents.rag.retrieval.genai.Client")
+@patch("trading_agents.rag.retrieval.get_rag_context")
+def test_generate_rag_answer(mock_get_context: MagicMock, mock_client_class: MagicMock) -> None:
+    from trading_agents.rag.retrieval import generate_rag_answer
+    
+    mock_get_context.return_value = "--- Chunk 1 from AAPL_10Q.html ---\nSome financial data context here."
+    
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.text = "In Q3, R&D expenses were $8.3 billion."
+    mock_client.models.generate_content.return_value = mock_response
+    
+    answer = generate_rag_answer("AAPL", "What was R&D in Q3?")
+    
+    # Verify retrieval was called with user's specific query
+    mock_get_context.assert_called_once_with("AAPL", query="What was R&D in Q3?", limit=5)
+    
+    # Verify Gemini was called
+    mock_client.models.generate_content.assert_called_once()
+    assert answer == "In Q3, R&D expenses were $8.3 billion."
+
+
+
 

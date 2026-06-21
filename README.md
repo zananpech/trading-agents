@@ -145,6 +145,19 @@ To ingest a single report file:
 uv run trading-agents-ingest --file data/reports/AAPL_10Q.pdf
 ```
 
+### Grounded Q&A Direct Query (Generation)
+
+You can also query the RAG database directly to ask specific questions about the company's reports. The retrieval system uses a **hybrid search (BM25 + Vector Similarity)**, fuses the ranks using **Reciprocal Rank Fusion (RRF)**, and reranks the top 10 candidates using a **structured Gemini model**. The final answer is generated under a strict context guardrail (no external knowledge hallucinations):
+
+```bash
+uv run trading-agents-query AAPL "What were research and development expenses in Q3?"
+```
+
+To view the specific report chunks and section headers used as context to answer the question, pass the `--show-sources` flag:
+```bash
+uv run trading-agents-query AAPL "What was the gross margin?" --show-sources
+```
+
 ---
 
 ## Report Sections
@@ -174,7 +187,8 @@ trading-agents/
 │       ├── cli/
 │       │   ├── main.py              # CLI entry point (trading-agents)
 │       │   ├── eval_cli.py          # Eval CLI (trading-agents-eval)
-│       │   └── ingest_cli.py        # Ingestion CLI (trading-agents-ingest)
+│       │   ├── ingest_cli.py        # Ingestion CLI (trading-agents-ingest)
+│       │   └── query_cli.py         # Direct query CLI (trading-agents-query)
 │       ├── agents/                  # LangGraph node functions
 │       ├── tools/                   # yfinance data fetching tools
 │       ├── rag/                     # RAG ingestion & retrieval logic

@@ -14,7 +14,7 @@ from langchain_core.documents import Document
 
 from trading_agents.config import GOOGLE_API_KEY, CHROMA_DB_PATH
 
-def get_rag_context(ticker: str, limit: int = 5) -> str:
+def get_rag_context(ticker: str, query: str | None = None, limit: int = 5) -> str:
     """
     Retrieves relevant text context (including parsed tables and chart summaries)
     from ChromaDB for the specified ticker. Uses hybrid search (Vector + BM25)
@@ -50,7 +50,8 @@ def get_rag_context(ticker: str, limit: int = 5) -> str:
         bm25_retriever = BM25Retriever.from_documents(all_docs)
         bm25_retriever.k = 10
         
-        query = f"financial results, earnings, balance sheet, income statement, valuation, or guidance for {ticker_upper}"
+        if query is None:
+            query = f"financial results, earnings, balance sheet, income statement, valuation, or guidance for {ticker_upper}"
         
         # Retrieve candidates
         bm25_results = bm25_retriever.invoke(query)
@@ -173,3 +174,50 @@ def get_rag_context(ticker: str, limit: int = 5) -> str:
     except Exception as e:
         print(f"Error querying ChromaDB for {ticker}: {e}")
         return f"Error retrieving RAG context for ticker: {ticker}. Details: {e}"
+
+
+def generate_rag_answer(ticker: str, query: str) -> str:
+    """
+    Answers a specific user query about a ticker by retrieving context
+    from local ChromaDB and using Gemini for precise, strictly-grounded answering.
+    """
+    context = get_rag_context(ticker, query=query, limit=5)
+    
+    # If retrieval says no filings found or has error, we immediately return that message
+    if "No recent quarterly report filings found in context" in context or "Error retrieving RAG context" in context:
+        return context
+        
+    try:
+        client = genai.Client(api_key=GOOGLE_API_KEY)
+        
+        system_prompt = (
+            "You are a helpful and precise financial analyst assistant.\n"
+            "Your job is to answer the user's query using ONLY the provided company report context chunks.\n"
+            "Do not make up facts, do not extrapolate, and do not use external or training dataset information.\n"
+            "If the answer to the query cannot be found within the provided context chunks, state exactly:\n"
+            "'I cannot answer this query based on the provided report context.'\n"
+            "Be quantitative and reference the source files and sections from the chunk headers in your answer."
+        )
+        
+        user_content = (
+            f"Retrieved Report Context:\n"
+            f"=========================\n"
+            f"{context}\n"
+            f"=========================\n\n"
+            f"User Query: {query}\n"
+        )
+        
+        response = client.models.generate_content(
+            model="gemini-2.5-flash",
+            contents=user_content,
+            config=types.GenerateContentConfig(
+                system_instruction=system_prompt,
+                temperature=0.0
+            )
+        )
+        
+        return response.text.strip()
+    except Exception as e:
+        print(f"Error generating RAG answer: {e}")
+        return f"Error generating answer for query: {query}. Details: {e}"
+
