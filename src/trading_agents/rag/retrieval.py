@@ -4,15 +4,21 @@ RAG retrieval module for querying local ChromaDB for a ticker's report context.
 from __future__ import annotations
 
 import os
+import json
+from google import genai
+from google.genai import types
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
+from langchain_community.retrievers import BM25Retriever
+from langchain_core.documents import Document
 
 from trading_agents.config import GOOGLE_API_KEY, CHROMA_DB_PATH
 
 def get_rag_context(ticker: str, limit: int = 5) -> str:
     """
     Retrieves relevant text context (including parsed tables and chart summaries)
-    from ChromaDB for the specified ticker.
+    from ChromaDB for the specified ticker. Uses hybrid search (Vector + BM25)
+    fused with Reciprocal Rank Fusion (RRF) and reranked using Gemini.
     """
     if not os.path.exists(CHROMA_DB_PATH):
         return "No recent quarterly report filings found in context (ChromaDB directory does not exist)."
@@ -29,20 +35,110 @@ def get_rag_context(ticker: str, limit: int = 5) -> str:
             embedding_function=embeddings
         )
         
-        # Query matching ticker in metadata
         ticker_upper = ticker.upper()
         
-        # Retrieve context
-        # In newer langchain, search_kwargs has 'filter'
-        results = db.similarity_search(
-            query=f"financial results, earnings, balance sheet, income statement, valuation, or guidance for {ticker_upper}",
-            k=limit,
+        # 1. Fetch all documents for this ticker to perform BM25 search locally
+        db_docs = db.get(where={"ticker": ticker_upper})
+        if not db_docs or not db_docs.get("documents"):
+            return f"No recent quarterly report filings found in context for ticker: {ticker_upper}."
+            
+        all_docs = []
+        for text_content, metadata in zip(db_docs["documents"], db_docs["metadatas"]):
+            all_docs.append(Document(page_content=text_content, metadata=metadata))
+            
+        # 2. Setup BM25 Retriever
+        bm25_retriever = BM25Retriever.from_documents(all_docs)
+        bm25_retriever.k = 10
+        
+        query = f"financial results, earnings, balance sheet, income statement, valuation, or guidance for {ticker_upper}"
+        
+        # Retrieve candidates
+        bm25_results = bm25_retriever.invoke(query)
+        vector_results = db.similarity_search(
+            query=query,
+            k=10,
             filter={"ticker": ticker_upper}
         )
         
-        if not results:
-            return f"No recent quarterly report filings found in context for ticker: {ticker_upper}."
-            
+        # 3. Reciprocal Rank Fusion (RRF)
+        rrf_scores = {}
+        def add_rrf_scores(results_list):
+            for rank, doc in enumerate(results_list, 1):
+                source = doc.metadata.get("source", "unknown")
+                chunk_idx = doc.metadata.get("chunk_index", -1)
+                key = (doc.page_content, source, chunk_idx)
+                if key not in rrf_scores:
+                    rrf_scores[key] = {"doc": doc, "score": 0.0}
+                rrf_scores[key]["score"] += 1.0 / (60.0 + rank)
+                
+        add_rrf_scores(vector_results)
+        add_rrf_scores(bm25_results)
+        
+        fused = sorted(rrf_scores.values(), key=lambda x: x["score"], reverse=True)
+        top_fused = [item["doc"] for item in fused[:10]]
+        
+        # 4. Gemini-based Reranking
+        final_docs = top_fused
+        if len(top_fused) > 1:
+            try:
+                client = genai.Client(api_key=GOOGLE_API_KEY)
+                
+                candidates_str = ""
+                for idx, doc in enumerate(top_fused):
+                    candidates_str += f"--- Candidate [{idx}] ---\n{doc.page_content}\n\n"
+                
+                prompt = (
+                    f"You are a financial analyst assistant tasked with ranking candidate document chunks by relevance.\n"
+                    f"Given the search query, examine each candidate chunk and determine how relevant it is to answering the query. "
+                    f"Order the candidate indexes from most relevant to least relevant.\n\n"
+                    f"Search Query: {query}\n\n"
+                    f"{candidates_str}"
+                    f"Return a JSON object containing a key 'ranked_indices' which is a list of integers corresponding to the indices of the most relevant candidate chunks (from most to least relevant). "
+                    f"Do not output anything else."
+                )
+                
+                response = client.models.generate_content(
+                    model="gemini-2.5-flash",
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        response_mime_type="application/json",
+                        response_schema=types.Schema(
+                            type=types.Type.OBJECT,
+                            properties={
+                                "ranked_indices": types.Schema(
+                                    type=types.Type.ARRAY,
+                                    items=types.Schema(type=types.Type.INTEGER)
+                                )
+                            },
+                            required=["ranked_indices"]
+                        ),
+                        temperature=0.0
+                    )
+                )
+                
+                res_data = json.loads(response.text)
+                ranked_indices = res_data.get("ranked_indices", [])
+                
+                seen = set()
+                reranked_docs = []
+                for idx in ranked_indices:
+                    if 0 <= idx < len(top_fused) and idx not in seen:
+                        reranked_docs.append(top_fused[idx])
+                        seen.add(idx)
+                        
+                for idx, doc in enumerate(top_fused):
+                    if idx not in seen:
+                        reranked_docs.append(doc)
+                        seen.add(idx)
+                        
+                final_docs = reranked_docs
+            except Exception as rerank_err:
+                print(f"Warning: Gemini reranking failed: {rerank_err}. Using RRF fusion fallback.")
+                final_docs = top_fused
+                
+        # Limit to the requested size
+        results = final_docs[:limit]
+        
         # Consolidate retrieved contexts
         context_parts = []
         for i, doc in enumerate(results, 1):

@@ -165,10 +165,11 @@ def test_pdf_corruption_guardrail(mock_fitz_open: MagicMock, tmp_path) -> None:
         ingest_document(str(pdf_file), ticker="AMZN")
 
 
+@patch("trading_agents.rag.retrieval.genai.Client")
 @patch("trading_agents.rag.retrieval.GoogleGenerativeAIEmbeddings")
 @patch("trading_agents.rag.retrieval.Chroma")
 @patch("os.path.exists")
-def test_get_rag_context(mock_exists: MagicMock, mock_chroma: MagicMock, mock_embeddings: MagicMock) -> None:
+def test_get_rag_context(mock_exists: MagicMock, mock_chroma: MagicMock, mock_embeddings: MagicMock, mock_client_class: MagicMock) -> None:
     from trading_agents.rag.retrieval import get_rag_context
     
     mock_exists.return_value = True
@@ -176,40 +177,79 @@ def test_get_rag_context(mock_exists: MagicMock, mock_chroma: MagicMock, mock_em
     mock_db = MagicMock()
     mock_chroma.return_value = mock_db
     
-    # Create mock documents returned by similarity_search
-    doc1 = MagicMock()
-    doc1.page_content = "This is chunk content 1"
-    doc1.metadata = {
-        "source": "AAPL_10Q.html",
-        "chunk_index": 4,
-        "total_chunks": 10,
-        "Header 1": "PART I",
-        "Header 2": "Item 2"
+    # Mock db.get to return documents and metadata for BM25
+    mock_db.get.return_value = {
+        "documents": [
+            "This is chunk content 1",
+            "This is chunk content 2"
+        ],
+        "metadatas": [
+            {
+                "ticker": "AAPL",
+                "source": "AAPL_10Q.html",
+                "chunk_index": 4,
+                "total_chunks": 10,
+                "Header 1": "PART I",
+                "Header 2": "Item 2"
+            },
+            {
+                "ticker": "AAPL",
+                "source": "AAPL_10Q.html",
+                "chunk_index": 7,
+                "total_chunks": 10,
+            }
+        ]
     }
     
-    doc2 = MagicMock()
-    doc2.page_content = "This is chunk content 2"
-    doc2.metadata = {
-        "source": "AAPL_10Q.html",
-        "chunk_index": 7,
-        "total_chunks": 10,
-    }
-    
+    # Mock db.similarity_search to return candidate document chunks
+    from langchain_core.documents import Document
+    doc1 = Document(
+        page_content="This is chunk content 1",
+        metadata={
+            "ticker": "AAPL",
+            "source": "AAPL_10Q.html",
+            "chunk_index": 4,
+            "total_chunks": 10,
+            "Header 1": "PART I",
+            "Header 2": "Item 2"
+        }
+    )
+    doc2 = Document(
+        page_content="This is chunk content 2",
+        metadata={
+            "ticker": "AAPL",
+            "source": "AAPL_10Q.html",
+            "chunk_index": 7,
+            "total_chunks": 10,
+        }
+    )
     mock_db.similarity_search.return_value = [doc1, doc2]
+    
+    # Mock Gemini client reranker response
+    mock_client = MagicMock()
+    mock_client_class.return_value = mock_client
+    mock_response = MagicMock()
+    mock_response.text = '{"ranked_indices": [1, 0]}'  # Reverse the rank order to verify reranker worked
+    mock_client.models.generate_content.return_value = mock_response
     
     context = get_rag_context("AAPL")
     
-    # Verify similarity search was called with correct filter
+    # Verify similarity search was called with correct filter and k=10
     mock_db.similarity_search.assert_called_once_with(
         query="financial results, earnings, balance sheet, income statement, valuation, or guidance for AAPL",
-        k=5,
+        k=10,
         filter={"ticker": "AAPL"}
     )
     
-    # Verify formatted context contains metadata
-    assert "--- Chunk 1 from AAPL_10Q.html [Chunk 5/10] [Section: PART I > Item 2] ---" in context
-    assert "This is chunk content 1" in context
-    assert "--- Chunk 2 from AAPL_10Q.html [Chunk 8/10] ---" in context
+    # Verify db.get was called
+    mock_db.get.assert_called_once_with(where={"ticker": "AAPL"})
+    
+    # Verify formatted context contains metadata in the reranked order
+    # (Since index [1, 0] was returned, doc2 should be Chunk 1 and doc1 should be Chunk 2)
+    assert "--- Chunk 1 from AAPL_10Q.html [Chunk 8/10] ---" in context
     assert "This is chunk content 2" in context
+    assert "--- Chunk 2 from AAPL_10Q.html [Chunk 5/10] [Section: PART I > Item 2] ---" in context
+    assert "This is chunk content 1" in context
+
 
 
