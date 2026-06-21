@@ -158,6 +158,23 @@ To view the specific report chunks and section headers used as context to answer
 uv run trading-agents-query AAPL "What was the gross margin?" --show-sources
 ```
 
+### Visualizing ChromaDB Collections (Web GUI)
+
+You can launch a local web-based graphical user interface to browse, inspect, and manage your ingested report chunks:
+
+1. Start the Docker services:
+   ```bash
+   docker compose up -d
+   ```
+2. Open **http://localhost:3001** in your web browser.
+3. When prompted for the database server connection URL in the UI, enter:
+   👉 **`http://chromadb:8000`**
+   *(Note: Enter `default_tenant` for tenant and `default_database` for database if prompted)*.
+4. The interface will let you browse collections (representing tickers), stored text chunks, and chunk-level metadata (`chunk_index`, headers, and source files).
+
+> [!NOTE]
+> The database viewer mounts your local `./.chroma_db` folder. If you perform ingestion (`uv run trading-agents-ingest`) while the database server container is active, you may need to restart the database container (`docker compose restart chromadb`) to reload the SQLite files, or stop the database container first to prevent write-concurrency database locks.
+
 ---
 
 ## Report Sections

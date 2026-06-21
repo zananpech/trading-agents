@@ -105,6 +105,30 @@ services:
     env_file:
       - docker-compose.env
 
+  chromadb:
+    image: chromadb/chroma:latest
+    container_name: chromadb
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      - IS_PERSISTENT=TRUE
+      - PERSIST_DIRECTORY=/data
+      - ANONYMIZED_TELEMETRY=FALSE
+    volumes:
+      - ./.chroma_db:/data
+
+  chromadb-admin:
+    image: fengzhichao/chromadb-admin:latest
+    container_name: chromadb-admin
+    restart: unless-stopped
+    ports:
+      - "3001:3001"
+    environment:
+      - CHROMA_URL=http://chromadb:8000
+    depends_on:
+      - chromadb
+
 volumes:
   langfuse_postgres_data:
   langfuse_redis_data:
