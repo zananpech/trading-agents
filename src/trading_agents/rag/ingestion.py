@@ -22,6 +22,7 @@ from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from google import genai
 from google.genai import types
+from trading_agents.tools.retry import retry_with_backoff
 
 from trading_agents.config import (
     GOOGLE_API_KEY,
@@ -48,6 +49,7 @@ def extract_ticker_from_filename(filepath: str) -> str:
             return ticker
     return "UNKNOWN"
 
+@retry_with_backoff()
 def describe_chart_image(image_path: str, api_key: str) -> str:
     """
     Uses Google Gemini multimodal API to describe a financial chart or table image.
@@ -252,6 +254,7 @@ def check_prompt_injection(text: str) -> bool:
             return True
     return False
 
+@retry_with_backoff()
 def ingest_document(filepath: str, ticker: str | None = None) -> int:
     """
     Ingests a single report into the local vector DB.

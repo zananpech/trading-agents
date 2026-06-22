@@ -7,6 +7,7 @@ import os
 import json
 from google import genai
 from google.genai import types
+from trading_agents.tools.retry import retry_with_backoff
 from langchain_community.vectorstores import Chroma
 from langchain_google_genai import GoogleGenerativeAIEmbeddings
 from langchain_community.retrievers import BM25Retriever
@@ -14,6 +15,7 @@ from langchain_core.documents import Document
 
 from trading_agents.config import GOOGLE_API_KEY, CHROMA_DB_PATH
 
+@retry_with_backoff()
 def get_rag_context(ticker: str, query: str | None = None, limit: int = 5) -> str:
     """
     Retrieves relevant text context (including parsed tables and chart summaries)
@@ -176,6 +178,7 @@ def get_rag_context(ticker: str, query: str | None = None, limit: int = 5) -> st
         return f"Error retrieving RAG context for ticker: {ticker}. Details: {e}"
 
 
+@retry_with_backoff()
 def generate_rag_answer(ticker: str, query: str) -> str:
     """
     Answers a specific user query about a ticker by retrieving context

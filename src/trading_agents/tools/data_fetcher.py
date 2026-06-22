@@ -12,6 +12,7 @@ from typing import Any
 
 import yfinance as yf
 from langchain_core.tools import tool
+from trading_agents.tools.retry import retry_with_backoff
 
 
 def _safe(val: Any, fmt: str = "") -> str:
@@ -33,6 +34,7 @@ def _safe(val: Any, fmt: str = "") -> str:
 
 
 @tool
+@retry_with_backoff()
 def get_stock_info(ticker: str) -> str:
     """
     Fetch company overview: name, sector, industry, market cap,
@@ -61,6 +63,7 @@ def get_stock_info(ticker: str) -> str:
 
 
 @tool
+@retry_with_backoff()
 def get_valuation_metrics(ticker: str) -> str:
     """
     Fetch key valuation ratios: P/E, Forward P/E, P/B, P/S,
@@ -92,6 +95,7 @@ def get_valuation_metrics(ticker: str) -> str:
 
 
 @tool
+@retry_with_backoff()
 def get_financials(ticker: str) -> str:
     """
     Fetch income statement & balance sheet highlights:
@@ -129,6 +133,7 @@ def get_financials(ticker: str) -> str:
 
 
 @tool
+@retry_with_backoff()
 def get_earnings(ticker: str) -> str:
     """
     Fetch quarterly earnings history: EPS (actual vs estimated),
@@ -171,6 +176,7 @@ def get_earnings(ticker: str) -> str:
 
 
 @tool
+@retry_with_backoff()
 def get_news(ticker: str) -> str:
     """
     Fetch recent news headlines for the ticker (last 7 days).
